@@ -1,0 +1,12 @@
+accesscontrol:
+  enabled: true
+
+server:
+  firstrun: true
+
+webcam:
+  stream: http://thingmaker.local:8080/?action=stream
+  snapshot: http://thingmaker.local:8080/?action=snapshot
+  ffmpeg: /usr/bin/ffmpeg
+
+
