@@ -649,7 +649,11 @@ class MachineCom(object):
 					fileinfo = line.strip().split(None, 2)
 					if len(fileinfo) > 1:
 						# we got extended file information here, so let's split filename and size and try to make them a bit nicer
-						filename, size = fileinfo
+						print "---- line: %s" % line
+						print "---- fileinfo: %s" % fileinfo
+						print "---- %s" % fileinfo[0]
+						filename = fileinfo[0]
+						size = fileinfo[1]
 						filename = filename.lower()
 						try:
 							size = int(size)
