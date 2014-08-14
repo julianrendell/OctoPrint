@@ -148,7 +148,7 @@ class MachineCom(object):
 		self._alwaysSendChecksum = settings().getBoolean(["feature", "alwaysSendChecksum"])
 		self._currentLine = 1
 		self._resendDelta = None
-		self._lastLines = deque([], 50)
+		self._lastLines = deque([], 250)
 
 		# SD status data
 		self._sdAvailable = False
@@ -1060,6 +1060,7 @@ class MachineCom(object):
 			self._resendDelta = self._currentLine - lineToResend
 			if self._resendDelta > len(self._lastLines) or len(self._lastLines) == 0 or self._resendDelta <= 0:
 				self._errorValue = "Printer requested line %d but no sufficient history is available, can't resend" % lineToResend
+				self._errorValue += " (resendDelta: %d, len(_lastLines): %d)" % (self._resendDelta, len(self._lastLines))
 				self._logger.warn(self._errorValue)
 				if self.isPrinting():
 					# abort the print, there's nothing we can do to rescue it now
