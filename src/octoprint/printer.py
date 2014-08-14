@@ -95,6 +95,7 @@ class Printer():
 					"date": None
 				},
 				"estimatedPrintTime": None,
+				"lastPrintTime": None,
 				"filament": {
 					"length": None,
 					"volume": None
@@ -389,6 +390,7 @@ class Printer():
 			self._selectedFile = None
 
 		estimatedPrintTime = None
+		lastPrintTime = None
 		date = None
 		filament = None
 		if filename:
@@ -398,11 +400,14 @@ class Printer():
 				date = int(os.stat(filename).st_ctime)
 
 			fileData = self._gcodeManager.getFileData(filename)
-			if fileData is not None and "gcodeAnalysis" in fileData.keys():
-				if "estimatedPrintTime" in fileData["gcodeAnalysis"].keys():
-					estimatedPrintTime = fileData["gcodeAnalysis"]["estimatedPrintTime"]
-				if "filament" in fileData["gcodeAnalysis"].keys():
-					filament = fileData["gcodeAnalysis"]["filament"]
+			if fileData is not None:
+				if "gcodeAnalysis" in fileData:
+					if estimatedPrintTime is None and "estimatedPrintTime" in fileData["gcodeAnalysis"]:
+						estimatedPrintTime = fileData["gcodeAnalysis"]["estimatedPrintTime"]
+					if "filament" in fileData["gcodeAnalysis"].keys():
+						filament = fileData["gcodeAnalysis"]["filament"]
+				if "prints" in fileData and fileData["prints"] and "last" in fileData["prints"] and fileData["prints"]["last"] and "lastPrintTime" in fileData["prints"]["last"]:
+					lastPrintTime = fileData["prints"]["last"]["lastPrintTime"]
 
 		self._stateMonitor.setJobData({
 			"file": {
@@ -412,6 +417,7 @@ class Printer():
 				"date": date
 			},
 			"estimatedPrintTime": estimatedPrintTime,
+			"lastPrintTime": lastPrintTime,
 			"filament": filament,
 		})
 
@@ -682,6 +688,7 @@ class StateMonitor(object):
 		self._offsets = {}
 
 		self._changeEvent = threading.Event()
+		self._stateMutex = threading.Lock()
 
 		self._lastUpdate = time.time()
 		self._worker = threading.Thread(target=self._work)
@@ -711,8 +718,9 @@ class StateMonitor(object):
 		self._changeEvent.set()
 
 	def setState(self, state):
-		self._state = state
-		self._changeEvent.set()
+		with self._stateMutex:
+			self._state = state
+			self._changeEvent.set()
 
 	def setJobData(self, jobData):
 		self._jobData = jobData
@@ -730,16 +738,17 @@ class StateMonitor(object):
 		while True:
 			self._changeEvent.wait()
 
-			now = time.time()
-			delta = now - self._lastUpdate
-			additionalWaitTime = self._ratelimit - delta
-			if additionalWaitTime > 0:
-				time.sleep(additionalWaitTime)
+			with self._stateMutex:
+				now = time.time()
+				delta = now - self._lastUpdate
+				additionalWaitTime = self._ratelimit - delta
+				if additionalWaitTime > 0:
+					time.sleep(additionalWaitTime)
 
-			data = self.getCurrentData()
-			self._updateCallback(data)
-			self._lastUpdate = time.time()
-			self._changeEvent.clear()
+				data = self.getCurrentData()
+				self._updateCallback(data)
+				self._lastUpdate = time.time()
+				self._changeEvent.clear()
 
 	def getCurrentData(self):
 		return {

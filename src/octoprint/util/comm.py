@@ -148,7 +148,7 @@ class MachineCom(object):
 		self._alwaysSendChecksum = settings().getBoolean(["feature", "alwaysSendChecksum"])
 		self._currentLine = 1
 		self._resendDelta = None
-		self._lastLines = deque([], 250)
+		self._lastLines = deque([], 50)
 
 		# SD status data
 		self._sdAvailable = False
@@ -340,11 +340,11 @@ class MachineCom(object):
 	def close(self, isError = False):
 		printing = self.isPrinting() or self.isPaused()
 		if self._serial is not None:
-			self._serial.close()
 			if isError:
 				self._changeState(self.STATE_CLOSED_WITH_ERROR)
 			else:
 				self._changeState(self.STATE_CLOSED)
+			self._serial.close()
 		self._serial = None
 
 		if settings().get(["feature", "sdSupport"]):
@@ -646,23 +646,20 @@ class MachineCom(object):
 				##~~ SD file list
 				# if we are currently receiving an sd file list, each line is just a filename, so just read it and abort processing
 				if self._sdFileList and not "End file list" in line:
-					fileinfo = line.strip().split(None, 2)
+					preprocessed_line = line.strip().lower()
+					fileinfo = preprocessed_line.rsplit(None, 1)
 					if len(fileinfo) > 1:
-						# we got extended file information here, so let's split filename and size and try to make them a bit nicer
-						print "---- line: %s" % line
-						print "---- fileinfo: %s" % fileinfo
-						print "---- %s" % fileinfo[0]
-						filename = fileinfo[0]
-						size = fileinfo[1]
-						filename = filename.lower()
+						# we might have extended file information here, so let's split filename and size and try to make them a bit nicer
+						filename, size = fileinfo
 						try:
 							size = int(size)
 						except ValueError:
-							# whatever that was, it was not an integer, so we'll just ignore it and set size to None
+							# whatever that was, it was not an integer, so we'll just use the whole line as filename and set size to None
+							filename = preprocessed_line
 							size = None
 					else:
 						# no extended file information, so only the filename is there and we set size to None
-						filename = fileinfo[0].lower()
+						filename = preprocessed_line
 						size = None
 
 					if isGcodeFileName(filename):
@@ -963,7 +960,7 @@ class MachineCom(object):
 			try:
 				self._log("Connecting to: %s" % self._port)
 				if self._baudrate == 0:
-					self._serial = serial.Serial(str(self._port), 115200, timeout=0.1, writeTimeout=10000)
+					self._serial = serial.Serial(str(self._port), 115200, timeout=settings().getFloat(["serial", "timeout", "connection"]), writeTimeout=10000)
 				else:
 					self._serial = serial.Serial(str(self._port), self._baudrate, timeout=settings().getFloat(["serial", "timeout", "connection"]), writeTimeout=10000)
 			except:
@@ -1060,7 +1057,6 @@ class MachineCom(object):
 			self._resendDelta = self._currentLine - lineToResend
 			if self._resendDelta > len(self._lastLines) or len(self._lastLines) == 0 or self._resendDelta <= 0:
 				self._errorValue = "Printer requested line %d but no sufficient history is available, can't resend" % lineToResend
-				self._errorValue += " (resendDelta: %d, len(_lastLines): %d)" % (self._resendDelta, len(self._lastLines))
 				self._logger.warn(self._errorValue)
 				if self.isPrinting():
 					# abort the print, there's nothing we can do to rescue it now
