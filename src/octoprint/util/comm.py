@@ -149,7 +149,7 @@ class MachineCom(object):
 		self._alwaysSendChecksum = settings().getBoolean(["feature", "alwaysSendChecksum"])
 		self._currentLine = 1
 		self._resendDelta = None
-		self._lastLines = deque([], 50)
+		self._lastLines = deque([], 250)
 
 		# SD status data
 		self._sdAvailable = False
