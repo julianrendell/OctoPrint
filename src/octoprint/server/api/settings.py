@@ -16,6 +16,8 @@ from octoprint.server import admin_permission
 from octoprint.server.api import api
 from octoprint.server.util.flask import restricted_access
 
+import octoprint.plugin
+
 
 #~~ settings
 
@@ -29,7 +31,7 @@ def getSettings():
 
 	connectionOptions = getConnectionOptions()
 
-	return jsonify({
+	data = {
 		"api": {
 			"enabled": s.getBoolean(["api", "enabled"]),
 			"key": s.get(["api", "key"]),
@@ -86,7 +88,8 @@ def getSettings():
 			"uploads": s.getBaseFolder("uploads"),
 			"timelapse": s.getBaseFolder("timelapse"),
 			"timelapseTmp": s.getBaseFolder("timelapse_tmp"),
-			"logs": s.getBaseFolder("logs")
+			"logs": s.getBaseFolder("logs"),
+			"watched": s.getBaseFolder("watched")
 		},
 		"temperature": {
 			"profiles": s.get(["temperature", "profiles"])
@@ -101,7 +104,21 @@ def getSettings():
 			"path": s.get(["cura", "path"]),
 			"config": s.get(["cura", "config"])
 		}
-	})
+	}
+
+	def process_plugin_result(name, plugin, result):
+		if result:
+			if not "plugins" in data:
+				data["plugins"] = dict()
+			if "__enabled" in result:
+				del result["__enabled"]
+			data["plugins"][name] = result
+
+	octoprint.plugin.call_plugin(octoprint.plugin.SettingsPlugin,
+	                             "on_settings_load",
+	                             callback=process_plugin_result)
+
+	return jsonify(data)
 
 
 @api.route("/settings", methods=["POST"])
@@ -177,6 +194,7 @@ def setSettings():
 			if "timelapse" in data["folder"].keys(): s.setBaseFolder("timelapse", data["folder"]["timelapse"])
 			if "timelapseTmp" in data["folder"].keys(): s.setBaseFolder("timelapse_tmp", data["folder"]["timelapseTmp"])
 			if "logs" in data["folder"].keys(): s.setBaseFolder("logs", data["folder"]["logs"])
+			if "watched" in data["folder"].keys(): s.setBaseFolder("watched", data["folder"]["watched"])
 
 		if "temperature" in data.keys():
 			if "profiles" in data["temperature"].keys(): s.set(["temperature", "profiles"], data["temperature"]["profiles"])
@@ -201,6 +219,12 @@ def setSettings():
 			# Enabled is a boolean so we cannot check that we have a result
 			enabled = cura.get("enabled")
 			s.setBoolean(["cura", "enabled"], enabled)
+
+		if "plugins" in data:
+			for name, plugin in octoprint.plugin.plugin_manager().get_implementations(octoprint.plugin.SettingsPlugin).items():
+				if name in data["plugins"]:
+					plugin.on_settings_save(data["plugins"][name])
+
 
 		s.save()
 

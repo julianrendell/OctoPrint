@@ -16,6 +16,7 @@ from flask.ext.principal import Identity, identity_changed, AnonymousIdentity
 import octoprint.util as util
 import octoprint.users
 import octoprint.server
+import octoprint.plugin
 from octoprint.server import admin_permission, NO_CONTENT, UI_API_KEY
 from octoprint.settings import settings as s, valid_boolean_trues
 from octoprint.server.util import get_api_key, get_user_for_apikey
@@ -107,6 +108,44 @@ def afterApiRequests(resp):
 	return resp
 
 
+#~~ data from plugins
+
+@api.route("/plugin/<string:name>", methods=["GET"])
+def pluginData(name):
+	api_plugins = octoprint.plugin.plugin_manager().get_implementations(octoprint.plugin.SimpleApiPlugin)
+	if not name in api_plugins:
+		return make_response("Not found", 404)
+
+	api_plugin = api_plugins[name]
+	response = api_plugin.on_api_get(request)
+
+	if response is not None:
+		return response
+	return NO_CONTENT
+
+#~~ commands for plugins
+
+@api.route("/plugin/<string:name>", methods=["POST"])
+@restricted_access
+def pluginCommand(name):
+	api_plugins = octoprint.plugin.plugin_manager().get_implementations(octoprint.plugin.SimpleApiPlugin)
+	if not name in api_plugins:
+		return make_response("Not found", 404)
+
+	api_plugin = api_plugins[name]
+	valid_commands = api_plugin.get_api_commands()
+	if valid_commands is None:
+		return make_response("Method not allowed", 405)
+
+	command, data, response = util.getJsonCommandFromRequest(request, valid_commands)
+	if response is not None:
+		return response
+
+	response = api_plugin.on_api_command(command, data)
+	if response is not None:
+		return response
+	return NO_CONTENT
+
 #~~ first run setup
 
 
@@ -141,6 +180,14 @@ def firstRunSetup():
 def apiPrinterState():
 	return make_response(("/api/state has been deprecated, use /api/printer instead", 405, []))
 
+
+@api.route("/version", methods=["GET"])
+@restricted_access
+def apiVersion():
+	return jsonify({
+		"server": octoprint.server.VERSION,
+		"api": octoprint.server.api.VERSION
+	})
 
 @api.route("/version", methods=["GET"])
 @restricted_access
@@ -235,8 +282,9 @@ def login():
 @restricted_access
 def logout():
 	# Remove session keys set by Flask-Principal
-	for key in ('identity.id', 'identity.auth_type'):
-		del session[key]
+	for key in ('identity.id', 'identity.name', 'identity.auth_type'):
+		if key in session:
+			del session[key]
 	identity_changed.send(current_app._get_current_object(), identity=AnonymousIdentity())
 
 	logout_user()

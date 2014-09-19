@@ -321,12 +321,12 @@ function formatDuration(seconds) {
     var m = (seconds % 3600) / 60;
     var h = seconds / 3600;
 
-    return _.sprintf("%02d:%02d:%02d", h, m, s);
+    return _.sprintf(gettext(/* L10N: duration format */ "%(hour)02d:%(minute)02d:%(second)02d"), {hour: h, minute: m, second: s});
 }
 
 function formatDate(unixTimestamp) {
     if (!unixTimestamp) return "-";
-    return moment.unix(unixTimestamp).format("YYYY-MM-DD HH:mm");
+    return moment.unix(unixTimestamp).format(gettext(/* L10N: Date format */ "YYYY-MM-DD HH:mm"));
 }
 
 function formatTimeAgo(unixTimestamp) {
@@ -336,20 +336,20 @@ function formatTimeAgo(unixTimestamp) {
 
 function formatFilament(filament) {
     if (!filament || !filament["length"]) return "-";
-    var result = _.sprintf("%.02fm", (filament["length"] / 1000));
+    var result = "%(length).02fm";
     if (filament.hasOwnProperty("volume") && filament.volume) {
-        result += " / " + _.sprintf("%.02fcm³", filament["volume"]);
+        result += " / " + "%(volume).02fcm³";
     }
-    return result;
+    return _.sprintf(result, {length: filament["length"] / 1000, volume: filament["volume"]});
 }
 
 function cleanTemperature(temp) {
-    if (!temp || temp < 10) return "off";
+    if (!temp || temp < 10) return gettext("off");
     return temp;
 }
 
 function formatTemperature(temp) {
-    if (!temp || temp < 10) return "off";
+    if (!temp || temp < 10) return gettext("off");
     return _.sprintf("%.1f&deg;C", temp);
 }
 
@@ -358,4 +358,43 @@ function pnotifyAdditionalInfo(inner) {
         + '<div class="pnotify_more"><a href="#" onclick="$(this).children().toggleClass(\'icon-caret-right icon-caret-down\').parent().parent().next().slideToggle(\'fast\')">More <i class="icon-caret-right"></i></a></div>'
         + '<div class="pnotify_more_container hide">' + inner + '</div>'
         + '</div>';
+}
+
+function ping(url, callback) {
+    var img = new Image();
+    var calledBack = false;
+
+    img.onload = function() {
+        callback(true);
+        calledBack = true;
+    };
+    img.onerror = function() {
+        if (!calledBack) {
+            callback(true);
+            calledBack = true;
+        }
+    };
+    img.src = url;
+    setTimeout(function() {
+        if (!calledBack) {
+            callback(false);
+            calledBack = true;
+        }
+    }, 1500);
+}
+
+function showOfflineOverlay(title, message, reconnectCallback) {
+    if (title == undefined) {
+        title = gettext("Server is offline");
+    }
+
+    $("#offline_overlay_title").text(title);
+    $("#offline_overlay_message").html(message);
+    $("#offline_overlay_reconnect").click(reconnectCallback);
+    if (!$("#offline_overlay").is(":visible"))
+        $("#offline_overlay").show();
+}
+
+function hideOfflineOverlay() {
+    $("#offline_overlay").hide();
 }

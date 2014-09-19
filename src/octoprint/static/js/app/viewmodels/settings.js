@@ -11,7 +11,39 @@ function SettingsViewModel(loginStateViewModel, usersViewModel) {
     self.appearance_name = ko.observable(undefined);
     self.appearance_color = ko.observable(undefined);
 
-    self.appearance_available_colors = ko.observable(["default", "red", "orange", "yellow", "green", "blue", "violet", "black"]);
+    self.appearance_available_colors = ko.observable([
+        {key: "default", name: gettext("default")},
+        {key: "red", name: gettext("red")},
+        {key: "orange", name: gettext("orange")},
+        {key: "yellow", name: gettext("yellow")},
+        {key: "green", name: gettext("green")},
+        {key: "blue", name: gettext("blue")},
+        {key: "violet", name: gettext("violet")},
+        {key: "black", name: gettext("black")}
+    ]);
+
+    self.appearance_colorName = function(color) {
+        switch (color) {
+            case "red":
+                return gettext("red");
+            case "orange":
+                return gettext("orange");
+            case "yellow":
+                return gettext("yellow");
+            case "green":
+                return gettext("green");
+            case "blue":
+                return gettext("blue");
+            case "violet":
+                return gettext("violet");
+            case "black":
+                return gettext("black");
+            case "default":
+                return gettext("default");
+            default:
+                return color;
+        }
+    };
 
     self.printer_movementSpeedX = ko.observable(undefined);
     self.printer_movementSpeedY = ko.observable(undefined);
@@ -135,6 +167,8 @@ function SettingsViewModel(loginStateViewModel, usersViewModel) {
 
     self.terminalFilters = ko.observableArray([]);
 
+    self.settings = undefined;
+
     self.addTemperatureProfile = function() {
         self.temperature_profiles.push({name: "New", extruder:0, bed:0});
     };
@@ -189,6 +223,12 @@ function SettingsViewModel(loginStateViewModel, usersViewModel) {
     };
 
     self.fromResponse = function(response) {
+        if (self.settings === undefined) {
+            self.settings = ko.mapping.fromJS(response);
+        } else {
+            ko.mapping.fromJS(response, self.settings);
+        }
+
         self.api_enabled(response.api.enabled);
         self.api_key(response.api.key);
         self.api_allowCrossOrigin(response.api.allowCrossOrigin);
@@ -239,6 +279,7 @@ function SettingsViewModel(loginStateViewModel, usersViewModel) {
         self.folder_timelapse(response.folder.timelapse);
         self.folder_timelapseTmp(response.folder.timelapseTmp);
         self.folder_logs(response.folder.logs);
+        self.folder_watched(response.folder.watched);
 
         self.cura_enabled(response.cura.enabled);
         self.cura_path(response.cura.path);
@@ -252,7 +293,9 @@ function SettingsViewModel(loginStateViewModel, usersViewModel) {
     };
 
     self.saveData = function() {
-        var data = {
+        var data = ko.mapping.toJS(self.settings);
+
+        data = _.extend(data, {
             "api" : {
                 "enabled": self.api_enabled(),
                 "key": self.api_key(),
@@ -307,7 +350,8 @@ function SettingsViewModel(loginStateViewModel, usersViewModel) {
                 "uploads": self.folder_uploads(),
                 "timelapse": self.folder_timelapse(),
                 "timelapseTmp": self.folder_timelapseTmp(),
-                "logs": self.folder_logs()
+                "logs": self.folder_logs(),
+                "watched": self.folder_watched()
             },
             "temperature": {
                 "profiles": self.temperature_profiles()
@@ -321,7 +365,7 @@ function SettingsViewModel(loginStateViewModel, usersViewModel) {
                 "config": self.cura_config()
             },
             "terminalFilters": self.terminalFilters()
-        };
+        });
 
         $.ajax({
             url: API_BASEURL + "settings",
@@ -334,6 +378,6 @@ function SettingsViewModel(loginStateViewModel, usersViewModel) {
                 $("#settings_dialog").modal("hide");
             }
         });
-    }
+    };
 
 }
