@@ -132,7 +132,7 @@ def getDosFilename(input, existingFilenames, extension=None):
 
 
 def findCollisionfreeName(input, extension, existingFilenames):
-	filename = re.sub(r"\s+", "_", input.lower().translate(None, ".\"/\\[]:;=,"))
+	filename = re.sub(r"\s+", "_", input.lower().translate({ord(i):None for i in ".\"/\\[]:;=,"}))
 
 	counter = 1
 	power = 1
@@ -245,6 +245,23 @@ def dict_merge(a, b):
 	for k, v in b.iteritems():
 		if k in result and isinstance(result[k], dict):
 			result[k] = dict_merge(result[k], v)
+		else:
+			result[k] = deepcopy(v)
+	return result
+
+
+def dict_clean(a, b):
+
+	from copy import deepcopy
+	if not isinstance(b, dict):
+		return a
+
+	result = deepcopy(a)
+	for k, v in a.iteritems():
+		if not k in b:
+			del result[k]
+		elif isinstance(v, dict):
+			result[k] = dict_clean(v, b[k])
 		else:
 			result[k] = deepcopy(v)
 	return result

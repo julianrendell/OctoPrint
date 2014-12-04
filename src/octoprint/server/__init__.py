@@ -7,7 +7,7 @@ __copyright__ = "Copyright (C) 2014 The OctoPrint Project - Released under terms
 
 import uuid
 from sockjs.tornado import SockJSRouter
-from flask import Flask, render_template, send_from_directory, g, request, make_response
+from flask import Flask, render_template, send_from_directory, g, request, make_response, session
 from flask.ext.login import LoginManager
 from flask.ext.principal import Principal, Permission, RoleNeed, identity_loaded, UserNeed
 from flask.ext.babel import Babel
@@ -27,11 +27,15 @@ babel = Babel(app)
 debug = False
 
 printer = None
-gcodeManager = None
+printerProfileManager = None
+fileManager = None
+slicingManager = None
+analysisQueue = None
 userManager = None
 eventManager = None
 loginManager = None
 pluginManager = None
+appSessionManager = None
 
 principals = Principal(app)
 admin_permission = Permission(RoleNeed("admin"))
@@ -39,14 +43,17 @@ user_permission = Permission(RoleNeed("user"))
 
 # only import the octoprint stuff down here, as it might depend on things defined above to be initialized already
 from octoprint.printer import Printer, getConnectionOptions
+from octoprint.printer.profile import PrinterProfileManager
 from octoprint.settings import settings
-import octoprint.gcodefiles as gcodefiles
 import octoprint.users as users
 import octoprint.events as events
 import octoprint.plugin
 import octoprint.timelapse
 import octoprint._version
 import octoprint.util
+import octoprint.filemanager.storage
+import octoprint.filemanager.analysis
+import octoprint.slicing
 
 from . import util
 
@@ -101,6 +108,9 @@ def index():
 	for name, implementation in asset_plugins.items():
 		asset_plugin_urls[name] = implementation.get_assets()
 
+	template_plugins = pluginManager.get_implementations(octoprint.plugin.TemplatePlugin)
+	template_plugin_names = template_plugins.keys()
+
 	return render_template(
 		"index.jinja2",
 		webcamStream=settings().get(["webcam", "stream"]),
@@ -119,6 +129,7 @@ def index():
 		gcodeThreshold=settings().get(["gcodeViewer", "sizeThreshold"]),
 		uiApiKey=UI_API_KEY,
 		settingsPlugins=settings_plugin_template_vars,
+		templatePlugins=template_plugin_names,
 		assetPlugins=asset_plugin_urls
 	)
 
@@ -156,8 +167,19 @@ def on_identity_loaded(sender, identity):
 
 
 def load_user(id):
+	if id == "_api":
+		return users.ApiUser()
+
+	if session and "usersession.id" in session:
+		sessionid = session["usersession.id"]
+	else:
+		sessionid = None
+
 	if userManager is not None:
-		return userManager.findUser(id)
+		if sessionid:
+			return userManager.findUser(username=id, session=sessionid)
+		else:
+			return userManager.findUser(username=id)
 	return users.DummyUser()
 
 
@@ -180,11 +202,15 @@ class Server():
 			self._checkForRoot()
 
 		global printer
-		global gcodeManager
+		global printerProfileManager
+		global fileManager
+		global slicingManager
+		global analysisQueue
 		global userManager
 		global eventManager
 		global loginManager
 		global pluginManager
+		global appSessionManager
 		global debug
 
 		from tornado.ioloop import IOLoop
@@ -198,13 +224,20 @@ class Server():
 		# then initialize logging
 		self._initLogging(self._debug, self._logConf)
 		logger = logging.getLogger(__name__)
-
 		logger.info("Starting OctoPrint %s" % DISPLAY_VERSION)
 
-		eventManager = events.eventManager()
-		gcodeManager = gcodefiles.GcodeManager()
-		printer = Printer(gcodeManager)
+		# then initialize the plugin manager
 		pluginManager = octoprint.plugin.plugin_manager(init=True)
+
+		printerProfileManager = PrinterProfileManager()
+		eventManager = events.eventManager()
+		analysisQueue = octoprint.filemanager.analysis.AnalysisQueue()
+		slicingManager = octoprint.slicing.SlicingManager(settings().getBaseFolder("slicingProfiles"), printerProfileManager)
+		storage_managers = dict()
+		storage_managers[octoprint.filemanager.FileDestinations.LOCAL] = octoprint.filemanager.storage.LocalFileStorage(settings().getBaseFolder("uploads"))
+		fileManager = octoprint.filemanager.FileManager(analysisQueue, slicingManager, printerProfileManager, initial_storage_managers=storage_managers)
+		printer = Printer(fileManager, analysisQueue, printerProfileManager)
+		appSessionManager = util.flask.AppSessionManager()
 
 		# configure additional template folders for jinja2
 		template_plugins = pluginManager.get_implementations(octoprint.plugin.TemplatePlugin)
@@ -246,7 +279,15 @@ class Server():
 			settings().get(["server", "reverseProxy", "prefixScheme"])
 		)
 
-		app.secret_key = "k3PuVYgtxNm8DXKKTw2nWmFQQun9qceV"
+		secret_key = settings().get(["server", "secretKey"])
+		if not secret_key:
+			import string
+			from random import choice
+			chars = string.ascii_lowercase + string.ascii_uppercase + string.digits
+			secret_key = "".join(choice(chars) for _ in xrange(32))
+			settings().set(["server", "secretKey"], secret_key)
+			settings().save()
+		app.secret_key = secret_key
 		loginManager = LoginManager()
 		loginManager.session_protection = "strong"
 		loginManager.user_callback = load_user
@@ -263,14 +304,27 @@ class Server():
 		app.debug = self._debug
 
 		from octoprint.server.api import api
+		from octoprint.server.apps import apps
 
 		# register API blueprint
 		app.register_blueprint(api, url_prefix="/api")
+		app.register_blueprint(apps, url_prefix="/apps")
 
 		# also register any blueprints defined in BlueprintPlugins
-		octoprint.plugin.call_plugin(octoprint.plugin.types.BlueprintPlugin,
-		                             "get_blueprint",
-		                             callback=lambda name, _, blueprint: app.register_blueprint(blueprint, url_prefix="/plugin/{name}".format(name=name)))
+		blueprint_plugins = octoprint.plugin.plugin_manager().get_implementations(octoprint.plugin.BlueprintPlugin)
+		for name, plugin in blueprint_plugins.items():
+			blueprint = plugin.get_blueprint()
+			if blueprint is None:
+				continue
+
+			if plugin.is_blueprint_protected():
+				from octoprint.server.util import apiKeyRequestHandler, corsResponseHandler
+				blueprint.before_request(apiKeyRequestHandler)
+				blueprint.after_request(corsResponseHandler)
+
+			url_prefix = "/plugin/{name}".format(name=name)
+			app.register_blueprint(blueprint, url_prefix=url_prefix)
+			logger.debug("Registered API of plugin {name} under URL prefix {url_prefix}".format(name=name, url_prefix=url_prefix))
 
 		self._router = SockJSRouter(self._createSocketConnection, "/sockjs")
 
@@ -291,14 +345,14 @@ class Server():
 		eventManager.fire(events.Events.STARTUP)
 		if settings().getBoolean(["serial", "autoconnect"]):
 			(port, baudrate) = settings().get(["serial", "port"]), settings().getInt(["serial", "baudrate"])
+			printer_profile = printerProfileManager.get_default()
 			connectionOptions = getConnectionOptions()
 			if port in connectionOptions["ports"]:
-				printer.connect(port, baudrate)
+				printer.connect(port=port, baudrate=baudrate, profile=printer_profile["id"] if "id" in printer_profile else "_default")
 
 		# start up watchdogs
 		observer = Observer()
-		observer.schedule(util.watchdog.GcodeWatchdogHandler(gcodeManager, printer), settings().getBaseFolder("watched"))
-		observer.schedule(util.watchdog.UploadCleanupWatchdogHandler(gcodeManager), settings().getBaseFolder("uploads"))
+		observer.schedule(util.watchdog.GcodeWatchdogHandler(fileManager, printer), settings().getBaseFolder("watched"))
 		observer.start()
 
 		ioloop = IOLoop.instance()
@@ -342,8 +396,8 @@ class Server():
 			logger.exception("Stacktrace follows:")
 
 	def _createSocketConnection(self, session):
-		global printer, gcodeManager, userManager, eventManager
-		return util.sockjs.PrinterStateConnection(printer, gcodeManager, userManager, eventManager, session)
+		global printer, fileManager, analysisQueue, userManager, eventManager
+		return util.sockjs.PrinterStateConnection(printer, fileManager, analysisQueue, userManager, eventManager, pluginManager, session)
 
 	def _checkForRoot(self):
 		if "geteuid" in dir(os) and os.geteuid() == 0:
@@ -388,6 +442,9 @@ class Server():
 					"level": "CRITICAL",
 					"handlers": ["serialFile"],
 					"propagate": False
+				},
+				"tornado.application": {
+					"level": "ERROR"
 				}
 			},
 			"root": {
