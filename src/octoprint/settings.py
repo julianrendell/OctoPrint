@@ -45,8 +45,10 @@ default_settings = {
 		"reverseProxy": {
 			"prefixHeader": "X-Script-Name",
 			"schemeHeader": "X-Scheme",
+			"hostHeader": "X-Forwarded-Host",
 			"prefixFallback": "",
-			"schemeFallback": ""
+			"schemeFallback": "",
+			"hostFallback": ""
 		},
 		"uploads": {
 			"maxSize":  1 * 1024 * 1024 * 1024, # 1GB
@@ -110,6 +112,10 @@ default_settings = {
 	"printerParameters": {
 		"pauseTriggers": [],
 		"defaultExtrusionLength": 5
+	},
+	"appearance": {
+		"name": "",
+		"color": "default"
 	},
 	"controls": [],
 	"system": {
@@ -290,15 +296,6 @@ class Settings(object):
 						default_profile["volume"]["depth"] = bed_dimensions["y"]
 				del self._config["printerParameters"]["bedDimensions"]
 
-			dirty = True
-
-		if "appearance" in self._config:
-			if "name" in self._config["appearance"]:
-				default_profile["name"] = self._config["appearance"]["name"]
-			if "color" in self._config["appearance"]:
-				default_profile["color"] = self._config["appearance"]["color"]
-
-			del self._config["appearance"]
 			dirty = True
 
 		if dirty:

@@ -59,7 +59,7 @@
             var CONFIG_GCODE_SIZE_THRESHOLD = {{ gcodeThreshold }};
             var CONFIG_GCODE_MOBILE_SIZE_THRESHOLD = {{ gcodeMobileThreshold }};
 
-            var SOCKJS_URI = window.location.protocol.slice(0, -1) + "://" + (window.document ? window.document.domain : window.location.hostname) + ":" + window.location.port + BASEURL + "sockjs";
+            var SOCKJS_URI = "{{ url_for('index') }}" + "sockjs";
             var SOCKJS_DEBUG = {%  if debug -%} true; {% else %} false; {%- endif %}
 
             var UI_API_KEY = "{{ uiApiKey }}";
@@ -125,7 +125,7 @@
                 <div class="accordion span4">
                     <div class="accordion-group" data-bind="visible: loginState.isUser" id="connection_accordion">
                         <div class="accordion-heading">
-                            <a class="accordion-toggle" data-toggle="collapse" href="#connection"><i class="icon-signal"></i> {{ _('Connection') }}</a>
+                            <a class="accordion-toggle" data-toggle="collapse" data-target="#connection"><i class="icon-signal"></i> {{ _('Connection') }}</a>
                         </div>
                         <div class="accordion-body collapse in" id="connection">
                             <div class="accordion-inner">
